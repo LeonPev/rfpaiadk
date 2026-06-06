@@ -141,6 +141,8 @@ export const initialState: AppState = {
   selectedSolutions: [],
   activeStageId: 'discovery',
   errors: {},
+  artifactChats: {},
+  artifactEditProposals: [],
 };
 
 export function stageHasArtifact(state: AppState, stage: Stage): boolean {

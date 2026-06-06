@@ -1,11 +1,23 @@
 import { artifactToMarkdown, parsedFromUnknown } from './format';
-import type { Artifact, ParsedArtifact, Project, Stage } from './types';
+import type { Artifact, ArtifactChatMessage, ParsedArtifact, Project, ProposedArtifact, Stage } from './types';
 import { fallbackByArtifactType, userId } from './workflow';
 
 type RunResult = {
   artifacts: Artifact[];
   events: unknown[];
   prompt: string;
+};
+
+export type ArtifactEditResult = {
+  assistantMessage: string;
+  needsMoreInput: boolean;
+  proposal?: {
+    changeSummary: string;
+    revisedArtifact: ProposedArtifact;
+  };
+  events: unknown[];
+  prompt: string;
+  rawText: string;
 };
 
 function newId(prefix: string) {
@@ -98,6 +110,60 @@ Stakeholders: ${project.stakeholders || 'Unspecified'}
 Constraints: ${project.constraints || 'Unspecified'}`;
 }
 
+function chatContext(messages: ArtifactChatMessage[]) {
+  if (!messages.length) return 'No artifact edit conversation yet.';
+  return messages.map((message) => `${message.role.toUpperCase()}: ${message.content}`).join('\n');
+}
+
+function parseArtifactEditResponse(text: string, fallbackArtifact: Artifact): Omit<ArtifactEditResult, 'events' | 'prompt' | 'rawText'> {
+  try {
+    const parsed = JSON.parse(stripCodeFence(text)) as {
+      assistantMessage?: unknown;
+      needsMoreInput?: unknown;
+      proposal?: {
+        changeSummary?: unknown;
+        revisedArtifact?: unknown;
+      };
+    };
+    const assistantMessage =
+      typeof parsed.assistantMessage === 'string' && parsed.assistantMessage.trim()
+        ? parsed.assistantMessage.trim()
+        : 'I reviewed the artifact edit request.';
+    const artifact = parsed.proposal?.revisedArtifact
+      ? parsedFromUnknown(parsed.proposal.revisedArtifact, fallbackArtifact.artifactType)
+      : undefined;
+
+    if (!artifact) {
+      return {
+        assistantMessage,
+        needsMoreInput: Boolean(parsed.needsMoreInput),
+      };
+    }
+
+    const record = parsed.proposal?.revisedArtifact as { content?: unknown };
+    const content = typeof record.content === 'string' && record.content.trim() ? record.content : artifactToMarkdown(artifact);
+    return {
+      assistantMessage,
+      needsMoreInput: false,
+      proposal: {
+        changeSummary:
+          typeof parsed.proposal?.changeSummary === 'string' && parsed.proposal.changeSummary.trim()
+            ? parsed.proposal.changeSummary.trim()
+            : 'Proposed artifact revision.',
+        revisedArtifact: {
+          ...artifact,
+          content,
+        },
+      },
+    };
+  } catch {
+    return {
+      assistantMessage: text.trim() || 'The artifact editor did not return a readable response.',
+      needsMoreInput: false,
+    };
+  }
+}
+
 export function buildPrompt(stage: Stage, agentApp: string, project: Project, artifacts: Artifact[], selectedSolutions: string[]) {
   const targetArtifacts = stage.artifactTypes.join(', ');
   const selected = selectedSolutions.length ? selectedSolutions.map((solution) => `- ${solution}`).join('\n') : 'None selected.';
@@ -142,6 +208,31 @@ ${selected}
 
 Upstream artifacts:
 ${artifactContext(artifacts)}`;
+}
+
+export function buildArtifactEditPrompt(project: Project, artifact: Artifact, messages: ArtifactChatMessage[]) {
+  return `You are editing one AYIT procurement artifact through a human approval workflow.
+
+Return strict JSON only using your artifact edit response contract.
+
+Project context:
+${projectContext(project)}
+
+Current artifact metadata:
+ID: ${artifact.id}
+Artifact title: ${artifact.artifactTitle}
+Artifact type: ${artifact.artifactType}
+Stage ID: ${artifact.stageId}
+Parse status: ${artifact.parseStatus}
+
+Current artifact summary:
+${artifact.summary || 'No summary.'}
+
+Current artifact Markdown:
+${artifact.content || 'No content.'}
+
+Artifact edit conversation:
+${chatContext(messages)}`;
 }
 
 async function createSession(appName: string, sessionId: string, state: Record<string, unknown>) {
@@ -212,4 +303,25 @@ export async function runStage(
   }
 
   return results;
+}
+
+export async function runArtifactEdit(project: Project, artifact: Artifact, messages: ArtifactChatMessage[]): Promise<ArtifactEditResult> {
+  const agentApp = 'artifact_editor_agent';
+  const sessionId = `artifact-edit-${artifact.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const prompt = buildArtifactEditPrompt(project, artifact, messages);
+
+  await createSession(agentApp, sessionId, {
+    artifactId: artifact.id,
+    artifactType: artifact.artifactType,
+    projectName: project.name,
+  });
+
+  const events = await runAgent(agentApp, sessionId, prompt);
+  const rawText = extractText(events);
+  return {
+    ...parseArtifactEditResponse(rawText, artifact),
+    events,
+    prompt,
+    rawText,
+  };
 }

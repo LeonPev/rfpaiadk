@@ -25,6 +25,27 @@ export type Artifact = ParsedArtifact & {
   parseStatus: 'parsed' | 'raw';
 };
 
+export type ArtifactChatMessage = {
+  id: string;
+  artifactId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+};
+
+export type ProposedArtifact = ParsedArtifact & {
+  content: string;
+};
+
+export type ArtifactEditProposal = {
+  id: string;
+  artifactId: string;
+  status: 'pending' | 'approved' | 'rejected';
+  changeSummary: string;
+  revisedArtifact: ProposedArtifact;
+  createdAt: string;
+};
+
 export type Project = {
   name: string;
   sponsor: string;
@@ -54,6 +75,8 @@ export type AppState = {
   activeStageId: string;
   selectedArtifactId?: string;
   errors: Record<string, string>;
+  artifactChats: Record<string, ArtifactChatMessage[]>;
+  artifactEditProposals: ArtifactEditProposal[];
 };
 
 export type Stage = {
