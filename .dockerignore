@@ -1,0 +1,8 @@
+.env
+.git
+node_modules
+dist
+.pytest_cache
+**/__pycache__
+*.py[cod]
+agents/*/.adk
