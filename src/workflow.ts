@@ -28,7 +28,6 @@ export const stages: Stage[] = [
     agentApps: ['research_planner_agent'],
     artifactTypes: ['Intelligence Collection Plan'],
     dependsOnArtifacts: ['Procurement Research Charter'],
-    humanGate: 'research-approval',
     description: 'The charter becomes an intelligence collection plan.',
   },
   {
@@ -38,8 +37,7 @@ export const stages: Stage[] = [
     agentApps: ['market_research_agent'],
     artifactTypes: ['Market Landscape Canvas'],
     dependsOnArtifacts: ['Intelligence Collection Plan'],
-    requiresResearchApproval: true,
-    description: 'Approved research plan drives grounded market landscape work.',
+    description: 'The research plan drives grounded market landscape work.',
     usesSearch: true,
   },
   {
@@ -49,7 +47,6 @@ export const stages: Stage[] = [
     agentApps: ['solution_architect_agent'],
     artifactTypes: ['Solution Decision Matrix'],
     dependsOnArtifacts: ['Market Landscape Canvas'],
-    humanGate: 'solution-selection',
     description: 'Market findings become a decision matrix of solution paths.',
   },
   {
@@ -59,8 +56,7 @@ export const stages: Stage[] = [
     agentApps: ['vendor_intelligence_agent'],
     artifactTypes: ['Vendor Evaluation Scorecard'],
     dependsOnArtifacts: ['Solution Decision Matrix'],
-    requiresSolutionSelection: true,
-    description: 'Selected solution paths focus vendor evaluation.',
+    description: 'The solution decision matrix focuses vendor evaluation.',
     usesSearch: true,
   },
   {
@@ -116,7 +112,7 @@ export const fallbackByArtifactType: Record<string, ParsedArtifact> = {
       { heading: 'Evaluation Criteria', body: ['Fit', 'Risk', 'Cost', 'Implementation effort', 'Vendor maturity'] },
     ],
     risks: ['Criteria may need weighting before final vendor scoring.'],
-    openQuestions: ['Who owns final approval?'],
+    openQuestions: ['Who owns the final decision?'],
     recommendedNextAction: 'Plan the intelligence collection work.',
   },
   'Intelligence Collection Plan': {
@@ -128,8 +124,8 @@ export const fallbackByArtifactType: Record<string, ParsedArtifact> = {
       { heading: 'Collection Tasks', body: ['Map categories', 'Identify candidate vendors', 'Capture evidence quality'] },
     ],
     risks: ['Research may over-index on vendor claims without corroboration.'],
-    openQuestions: ['Which sources are approved for use?'],
-    recommendedNextAction: 'Approve this plan before market research.',
+    openQuestions: ['Which sources are acceptable for use?'],
+    recommendedNextAction: 'Continue to market research.',
   },
 };
 
@@ -137,7 +133,6 @@ export const initialState: AppState = {
   project: defaultProject,
   artifacts: [],
   runs: [],
-  approvedResearchPlan: false,
   selectedSolutions: [],
   activeStageId: 'discovery',
   errors: {},
@@ -161,8 +156,6 @@ export function isStageReady(state: AppState, stage: Stage): boolean {
   if (stageHasArtifact(state, stage)) return true;
   if (stage.id === 'discovery') return isProjectReady(state.project);
   if (!stage.dependsOnArtifacts.every((artifactType) => hasArtifactType(state, artifactType))) return false;
-  if (stage.requiresResearchApproval && !state.approvedResearchPlan) return false;
-  if (stage.requiresSolutionSelection && state.selectedSolutions.length === 0) return false;
   return true;
 }
 

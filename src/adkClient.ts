@@ -211,7 +211,7 @@ ${artifactContext(artifacts)}`;
 }
 
 export function buildArtifactEditPrompt(project: Project, artifact: Artifact, messages: ArtifactChatMessage[]) {
-  return `You are editing one AYIT procurement artifact through a human approval workflow.
+  return `You are editing one AYIT procurement artifact through a human review workflow.
 
 Return strict JSON only using your artifact edit response contract.
 

@@ -215,24 +215,9 @@ function GatePanel({
 
   return (
     <section className="gate-panel">
-      <div className="gate-row">
-        <div>
-          <p className="eyebrow">Human Gate</p>
-          <h2>Research Plan Approval</h2>
-        </div>
-        <button
-          type="button"
-          className={state.approvedResearchPlan ? 'secondary success' : 'secondary'}
-          disabled={!state.artifacts.some((artifact) => artifact.artifactType === 'Intelligence Collection Plan')}
-          onClick={() => setState((current) => ({ ...current, approvedResearchPlan: !current.approvedResearchPlan }))}
-        >
-          <Check size={17} />
-          {state.approvedResearchPlan ? 'Approved' : 'Approve'}
-        </button>
-      </div>
       <div className="gate-row solution-gate">
         <div>
-          <p className="eyebrow">Human Gate</p>
+          <p className="eyebrow">Optional Focus</p>
           <h2>Preferred Solutions</h2>
         </div>
         <form
@@ -309,7 +294,7 @@ function ArtifactPanel({
   editError,
   isEditing,
   onSendEdit,
-  onApproveProposal,
+  onApplyProposal,
   onRejectProposal,
 }: {
   artifact?: Artifact;
@@ -319,7 +304,7 @@ function ArtifactPanel({
   editError?: string;
   isEditing: boolean;
   onSendEdit: (artifact: Artifact, message: string) => void;
-  onApproveProposal: (artifact: Artifact, proposal: ArtifactEditProposal) => void;
+  onApplyProposal: (artifact: Artifact, proposal: ArtifactEditProposal) => void;
   onRejectProposal: (proposal: ArtifactEditProposal) => void;
 }) {
   if (!artifact) {
@@ -373,7 +358,7 @@ function ArtifactPanel({
         error={editError}
         isRunning={isEditing}
         onSend={onSendEdit}
-        onApprove={onApproveProposal}
+        onApply={onApplyProposal}
         onReject={onRejectProposal}
       />
     </section>
@@ -414,7 +399,7 @@ function ArtifactEditChat({
   error,
   isRunning,
   onSend,
-  onApprove,
+  onApply,
   onReject,
 }: {
   artifact: Artifact;
@@ -423,7 +408,7 @@ function ArtifactEditChat({
   error?: string;
   isRunning: boolean;
   onSend: (artifact: Artifact, message: string) => void;
-  onApprove: (artifact: Artifact, proposal: ArtifactEditProposal) => void;
+  onApply: (artifact: Artifact, proposal: ArtifactEditProposal) => void;
   onReject: (proposal: ArtifactEditProposal) => void;
 }) {
   const [draft, setDraft] = useState('');
@@ -448,7 +433,7 @@ function ArtifactEditChat({
             </div>
           ))
         ) : (
-          <p className="empty-copy">Ask for a focused edit, then approve the proposed changes before they touch the artifact.</p>
+          <p className="empty-copy">Ask for a focused edit, then review the proposed changes before they touch the artifact.</p>
         )}
         {isRunning ? (
           <div className="chat-message assistant">
@@ -469,7 +454,7 @@ function ArtifactEditChat({
         <section className="proposal-review">
           <div className="proposal-heading">
             <div>
-              <p className="eyebrow">Pending Approval</p>
+              <p className="eyebrow">Pending Review</p>
               <h2>{pendingProposal.changeSummary}</h2>
             </div>
             <div className="proposal-actions">
@@ -477,9 +462,9 @@ function ArtifactEditChat({
                 <X size={17} />
                 Reject
               </button>
-              <button className="run-button" type="button" onClick={() => onApprove(artifact, pendingProposal)}>
+              <button className="run-button" type="button" onClick={() => onApply(artifact, pendingProposal)}>
                 <Check size={17} />
-                Approve
+                Apply
               </button>
             </div>
           </div>
@@ -543,6 +528,7 @@ export function App() {
   const [runningStageId, setRunningStageId] = useState<string>();
   const [runningArtifactEditId, setRunningArtifactEditId] = useState<string>();
   const [artifactEditErrors, setArtifactEditErrors] = useState<Record<string, string>>({});
+  const [isWorkflowBoardCollapsed, setIsWorkflowBoardCollapsed] = useState(false);
 
   useEffect(() => saveState(state), [state]);
 
@@ -719,7 +705,7 @@ export function App() {
     }
   }
 
-  function approveArtifactProposal(artifact: Artifact, proposal: ArtifactEditProposal) {
+  function applyArtifactProposal(artifact: Artifact, proposal: ArtifactEditProposal) {
     const revised = proposal.revisedArtifact;
     const updated: Artifact = {
       ...artifact,
@@ -733,7 +719,7 @@ export function App() {
       ...current,
       artifacts: current.artifacts.map((item) => (item.id === artifact.id ? updated : item)),
       artifactEditProposals: current.artifactEditProposals.map((item) =>
-        item.id === proposal.id ? { ...item, status: 'approved' as const } : item,
+        item.id === proposal.id ? { ...item, status: 'applied' as const } : item,
       ),
     }));
   }
@@ -760,34 +746,50 @@ export function App() {
         />
         <ApiNotice hasKey={hasGeminiKey} />
 
-        <section className="workspace">
-          <div className="board">
+        <section className={isWorkflowBoardCollapsed ? 'workspace workflow-collapsed' : 'workspace'}>
+          <div className={isWorkflowBoardCollapsed ? 'board collapsed' : 'board'}>
             <div className="board-header">
               <div>
                 <p className="eyebrow">Workflow Board</p>
                 <h2>{activeStage.title}</h2>
               </div>
-              <StatusPill status={projectReady ? 'ready' : 'locked'} />
+              <div className="board-actions">
+                <StatusPill status={projectReady ? 'ready' : 'locked'} />
+                <button
+                  className="icon-button board-toggle"
+                  type="button"
+                  aria-label={isWorkflowBoardCollapsed ? 'Expand workflow board' : 'Collapse workflow board'}
+                  aria-expanded={!isWorkflowBoardCollapsed}
+                  title={isWorkflowBoardCollapsed ? 'Expand workflow board' : 'Collapse workflow board'}
+                  onClick={() => setIsWorkflowBoardCollapsed((current) => !current)}
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
             </div>
-            <div className="stage-grid">
-              {stages.map((stage) => {
-                const status = getStageStatus(state, stage, runningStageId);
-                return (
-                  <StageCard
-                    key={stage.id}
-                    stage={stage}
-                    status={status}
-                    active={stage.id === activeStage.id}
-                    hasKey={hasGeminiKey}
-                    error={state.errors[stage.id]}
-                    onOpen={() => setState((current) => ({ ...current, activeStageId: stage.id }))}
-                    onRun={() => executeStage(stage)}
-                    onRetry={() => executeStage(stage)}
-                  />
-                );
-              })}
-            </div>
-            <GatePanel state={state} setState={setState} />
+            {isWorkflowBoardCollapsed ? null : (
+              <div className="board-body">
+                <div className="stage-grid">
+                  {stages.map((stage) => {
+                    const status = getStageStatus(state, stage, runningStageId);
+                    return (
+                      <StageCard
+                        key={stage.id}
+                        stage={stage}
+                        status={status}
+                        active={stage.id === activeStage.id}
+                        hasKey={hasGeminiKey}
+                        error={state.errors[stage.id]}
+                        onOpen={() => setState((current) => ({ ...current, activeStageId: stage.id }))}
+                        onRun={() => executeStage(stage)}
+                        onRetry={() => executeStage(stage)}
+                      />
+                    );
+                  })}
+                </div>
+                <GatePanel state={state} setState={setState} />
+              </div>
+            )}
           </div>
 
           <aside className="side-panel">
@@ -809,7 +811,7 @@ export function App() {
                 }))
               }
               onSendEdit={sendArtifactEdit}
-              onApproveProposal={approveArtifactProposal}
+              onApplyProposal={applyArtifactProposal}
               onRejectProposal={rejectArtifactProposal}
             />
           </aside>

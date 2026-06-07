@@ -40,7 +40,7 @@ export type ProposedArtifact = ParsedArtifact & {
 export type ArtifactEditProposal = {
   id: string;
   artifactId: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'applied' | 'rejected';
   changeSummary: string;
   revisedArtifact: ProposedArtifact;
   createdAt: string;
@@ -70,7 +70,6 @@ export type AppState = {
   project: Project;
   artifacts: Artifact[];
   runs: AgentRun[];
-  approvedResearchPlan: boolean;
   selectedSolutions: string[];
   activeStageId: string;
   selectedArtifactId?: string;
@@ -86,9 +85,6 @@ export type Stage = {
   agentApps: string[];
   artifactTypes: string[];
   dependsOnArtifacts: string[];
-  requiresResearchApproval?: boolean;
-  requiresSolutionSelection?: boolean;
-  humanGate?: 'research-approval' | 'solution-selection';
   description: string;
   usesSearch?: boolean;
 };
