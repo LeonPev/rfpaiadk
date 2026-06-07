@@ -203,11 +203,30 @@ button:focus-visible {
 }
 
 .workspace.workflow-collapsed {
-  grid-template-columns: minmax(260px, 320px) minmax(420px, 1fr);
+  grid-template-columns: minmax(300px, 380px) minmax(560px, 1fr);
 }
 
 .board {
   padding: 14px;
+}
+
+.board.collapsed {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.board.collapsed .board-header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.board.collapsed .board-header > div:first-child {
+  min-width: 0;
+}
+
+.board.collapsed .board-header h2 {
+  overflow-wrap: anywhere;
 }
 
 .board-actions {
@@ -418,6 +437,10 @@ button:focus-visible {
   min-width: 0;
 }
 
+.side-panel.workflow-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .artifact-list,
 .artifact-panel {
   padding: 14px;
@@ -427,6 +450,16 @@ button:focus-visible {
   display: grid;
   align-content: start;
   gap: 8px;
+}
+
+.artifact-list.embedded {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.artifact-list.embedded .section-heading.compact {
+  margin-bottom: 8px;
 }
 
 .artifact-item {

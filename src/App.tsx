@@ -260,13 +260,15 @@ function ArtifactList({
   artifacts,
   selectedId,
   onSelect,
+  embedded = false,
 }: {
   artifacts: Artifact[];
   selectedId?: string;
   onSelect: (artifactId: string) => void;
+  embedded?: boolean;
 }) {
   return (
-    <section className="artifact-list">
+    <section className={embedded ? 'artifact-list embedded' : 'artifact-list'}>
       <div className="section-heading compact">
         <div>
           <p className="eyebrow">Artifacts</p>
@@ -767,7 +769,14 @@ export function App() {
                 </button>
               </div>
             </div>
-            {isWorkflowBoardCollapsed ? null : (
+            {isWorkflowBoardCollapsed ? (
+              <ArtifactList
+                artifacts={state.artifacts}
+                selectedId={selectedArtifact?.id}
+                onSelect={(artifactId) => setState((current) => ({ ...current, selectedArtifactId: artifactId }))}
+                embedded
+              />
+            ) : (
               <div className="board-body">
                 <div className="stage-grid">
                   {stages.map((stage) => {
@@ -792,12 +801,14 @@ export function App() {
             )}
           </div>
 
-          <aside className="side-panel">
-            <ArtifactList
-              artifacts={state.artifacts}
-              selectedId={selectedArtifact?.id}
-              onSelect={(artifactId) => setState((current) => ({ ...current, selectedArtifactId: artifactId }))}
-            />
+          <aside className={isWorkflowBoardCollapsed ? 'side-panel workflow-collapsed' : 'side-panel'}>
+            {isWorkflowBoardCollapsed ? null : (
+              <ArtifactList
+                artifacts={state.artifacts}
+                selectedId={selectedArtifact?.id}
+                onSelect={(artifactId) => setState((current) => ({ ...current, selectedArtifactId: artifactId }))}
+              />
+            )}
             <ArtifactPanel
               artifact={selectedArtifact}
               messages={selectedMessages}
