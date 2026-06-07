@@ -524,6 +524,12 @@ button:focus-visible {
   gap: 12px;
 }
 
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .artifact-panel textarea {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.86rem;
@@ -541,6 +547,7 @@ button:focus-visible {
   font-size: 0.92rem;
   font-weight: 500;
   line-height: 1.55;
+  text-align: start;
 }
 
 .artifact-markdown > :first-child {
@@ -582,14 +589,54 @@ button:focus-visible {
   margin: 0 0 10px;
 }
 
+.artifact-markdown a {
+  color: var(--blue);
+  font-weight: 680;
+}
+
 .artifact-markdown ul,
 .artifact-markdown ol {
   margin: 0 0 12px;
-  padding-left: 22px;
+  padding-inline-start: 22px;
 }
 
 .artifact-markdown li + li {
   margin-top: 5px;
+}
+
+.artifact-markdown table {
+  width: 100%;
+  margin: 0 0 12px;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.artifact-markdown th,
+.artifact-markdown td {
+  border: 1px solid var(--line);
+  padding: 8px 9px;
+  text-align: start;
+  vertical-align: top;
+}
+
+.artifact-markdown th {
+  background: var(--panel-strong);
+  font-weight: 760;
+}
+
+.artifact-markdown blockquote {
+  margin: 0 0 12px;
+  border-inline-start: 3px solid #9ca9ba;
+  padding-inline-start: 12px;
+  color: #485363;
+}
+
+.artifact-markdown code {
+  border-radius: 4px;
+  background: var(--panel-strong);
+  padding: 1px 4px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.84rem;
 }
 
 .artifact-markdown pre {
@@ -604,21 +651,15 @@ button:focus-visible {
   font-weight: 520;
 }
 
+.artifact-markdown pre code {
+  background: transparent;
+  padding: 0;
+}
+
 .artifact-markdown hr {
   border: 0;
   border-top: 1px solid var(--line);
   margin: 14px 0;
-}
-
-.markdown-empty {
-  min-height: 180px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--muted);
-  background: #fff;
-  font-weight: 620;
 }
 
 .artifact-chat {
