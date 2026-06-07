@@ -3,9 +3,11 @@ import {
   Check,
   ChevronRight,
   Download,
+  Eye,
   FileJson,
   FileText,
   MessageSquare,
+  Pencil,
   Play,
   Printer,
   RefreshCw,
@@ -53,6 +55,152 @@ function changedRows(artifact: Artifact, proposal: ArtifactEditProposal) {
 
 function displayValue(value: string) {
   return value.trim() || 'Empty';
+}
+
+type MarkdownBlock =
+  | { type: 'heading'; depth: number; text: string }
+  | { type: 'paragraph'; text: string }
+  | { type: 'ul'; items: string[] }
+  | { type: 'ol'; items: string[] }
+  | { type: 'pre'; code: string }
+  | { type: 'hr' };
+
+function parseMarkdown(content: string): MarkdownBlock[] {
+  const blocks: MarkdownBlock[] = [];
+  const lines = content.split(/\r?\n/);
+  let paragraph: string[] = [];
+  let list: { type: 'ul' | 'ol'; items: string[] } | undefined;
+  let codeLines: string[] | undefined;
+
+  function flushParagraph() {
+    if (!paragraph.length) return;
+    blocks.push({ type: 'paragraph', text: paragraph.join(' ') });
+    paragraph = [];
+  }
+
+  function flushList() {
+    if (!list) return;
+    blocks.push(list);
+    list = undefined;
+  }
+
+  lines.forEach((line) => {
+    if (codeLines) {
+      if (line.trim().startsWith('```')) {
+        blocks.push({ type: 'pre', code: codeLines.join('\n') });
+        codeLines = undefined;
+        return;
+      }
+      codeLines.push(line);
+      return;
+    }
+
+    if (line.trim().startsWith('```')) {
+      flushParagraph();
+      flushList();
+      codeLines = [];
+      return;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: 'heading', depth: heading[1].length, text: heading[2] });
+      return;
+    }
+
+    if (/^(-{3,}|\*{3,})$/.test(line.trim())) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: 'hr' });
+      return;
+    }
+
+    const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+    if (unordered) {
+      flushParagraph();
+      if (!list || list.type !== 'ul') {
+        flushList();
+        list = { type: 'ul', items: [] };
+      }
+      list.items.push(unordered[1]);
+      return;
+    }
+
+    const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
+    if (ordered) {
+      flushParagraph();
+      if (!list || list.type !== 'ol') {
+        flushList();
+        list = { type: 'ol', items: [] };
+      }
+      list.items.push(ordered[1]);
+      return;
+    }
+
+    flushList();
+    paragraph.push(line.trim());
+  });
+
+  if (codeLines) blocks.push({ type: 'pre', code: codeLines.join('\n') });
+  flushParagraph();
+  flushList();
+  return blocks;
+}
+
+function MarkdownPreview({ content }: { content: string }) {
+  const blocks = parseMarkdown(content);
+
+  if (!blocks.length) {
+    return <p className="markdown-empty">No markdown content yet.</p>;
+  }
+
+  function renderHeading(depth: number, text: string, key: number) {
+    if (depth === 1) return <h1 key={key}>{text}</h1>;
+    if (depth === 2) return <h2 key={key}>{text}</h2>;
+    if (depth === 3) return <h3 key={key}>{text}</h3>;
+    if (depth === 4) return <h4 key={key}>{text}</h4>;
+    if (depth === 5) return <h5 key={key}>{text}</h5>;
+    return <h6 key={key}>{text}</h6>;
+  }
+
+  return (
+    <div className="artifact-markdown">
+      {blocks.map((block, index) => {
+        if (block.type === 'heading') {
+          return renderHeading(block.depth, block.text, index);
+        }
+        if (block.type === 'paragraph') return <p key={index}>{block.text}</p>;
+        if (block.type === 'ul') {
+          return (
+            <ul key={index}>
+              {block.items.map((item, itemIndex) => (
+                <li key={`${index}-${itemIndex}`}>{item}</li>
+              ))}
+            </ul>
+          );
+        }
+        if (block.type === 'ol') {
+          return (
+            <ol key={index}>
+              {block.items.map((item, itemIndex) => (
+                <li key={`${index}-${itemIndex}`}>{item}</li>
+              ))}
+            </ol>
+          );
+        }
+        if (block.type === 'pre') return <pre key={index}>{block.code}</pre>;
+        return <hr key={index} />;
+      })}
+    </div>
+  );
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -309,6 +457,12 @@ function ArtifactPanel({
   onApplyProposal: (artifact: Artifact, proposal: ArtifactEditProposal) => void;
   onRejectProposal: (proposal: ArtifactEditProposal) => void;
 }) {
+  const [isMarkdownEditing, setIsMarkdownEditing] = useState(false);
+
+  useEffect(() => {
+    setIsMarkdownEditing(false);
+  }, [artifact?.id]);
+
   if (!artifact) {
     return (
       <section className="artifact-panel empty">
@@ -345,14 +499,24 @@ function ArtifactPanel({
           onChange={(event) => onUpdate({ ...artifact, summary: event.target.value })}
         />
       </label>
-      <label className="editor">
-        Artifact Markdown
-        <textarea
-          rows={18}
-          value={artifact.content}
-          onChange={(event) => onUpdate({ ...artifact, content: event.target.value })}
-        />
-      </label>
+      <div className="editor">
+        <div className="editor-heading">
+          <span>Artifact Markdown</span>
+          <IconButton label={isMarkdownEditing ? 'Preview Markdown' : 'Edit Markdown'} onClick={() => setIsMarkdownEditing((current) => !current)}>
+            {isMarkdownEditing ? <Eye size={18} /> : <Pencil size={18} />}
+          </IconButton>
+        </div>
+        {isMarkdownEditing ? (
+          <textarea
+            aria-label="Artifact Markdown"
+            rows={18}
+            value={artifact.content}
+            onChange={(event) => onUpdate({ ...artifact, content: event.target.value })}
+          />
+        ) : (
+          <MarkdownPreview content={artifact.content} />
+        )}
+      </div>
       <ArtifactEditChat
         artifact={artifact}
         messages={messages}

@@ -509,12 +509,116 @@ button:focus-visible {
 }
 
 .artifact-panel .editor {
+  display: grid;
+  gap: 7px;
   margin-top: 12px;
+  color: #2f343b;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .artifact-panel textarea {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.86rem;
+}
+
+.artifact-markdown {
+  min-height: 320px;
+  max-height: 680px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  padding: 16px;
+  color: #222831;
+  font-size: 0.92rem;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.artifact-markdown > :first-child {
+  margin-top: 0;
+}
+
+.artifact-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.artifact-markdown h1,
+.artifact-markdown h2,
+.artifact-markdown h3,
+.artifact-markdown h4,
+.artifact-markdown h5,
+.artifact-markdown h6 {
+  margin: 18px 0 8px;
+  color: var(--ink);
+  font-weight: 760;
+  line-height: 1.25;
+}
+
+.artifact-markdown h1 {
+  font-size: 1.18rem;
+}
+
+.artifact-markdown h2 {
+  font-size: 1.05rem;
+}
+
+.artifact-markdown h3,
+.artifact-markdown h4,
+.artifact-markdown h5,
+.artifact-markdown h6 {
+  font-size: 0.96rem;
+}
+
+.artifact-markdown p {
+  margin: 0 0 10px;
+}
+
+.artifact-markdown ul,
+.artifact-markdown ol {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.artifact-markdown li + li {
+  margin-top: 5px;
+}
+
+.artifact-markdown pre {
+  overflow: auto;
+  margin: 0 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-strong);
+  padding: 10px 11px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.84rem;
+  font-weight: 520;
+}
+
+.artifact-markdown hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 14px 0;
+}
+
+.markdown-empty {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  background: #fff;
+  font-weight: 620;
 }
 
 .artifact-chat {
