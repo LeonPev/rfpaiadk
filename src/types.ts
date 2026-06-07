@@ -71,6 +71,7 @@ export type AppState = {
   artifacts: Artifact[];
   runs: AgentRun[];
   selectedSolutions: string[];
+  agentPromptOverrides: Record<string, string>;
   activeStageId: string;
   selectedArtifactId?: string;
   errors: Record<string, string>;

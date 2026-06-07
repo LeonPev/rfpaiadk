@@ -16,7 +16,10 @@ export default defineConfig(({ mode }) => {
         '/adk': {
           target: 'http://localhost:8001',
           changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/adk/, ''),
+        },
+        '/api': {
+          target: 'http://localhost:8001',
+          changeOrigin: true,
         },
       },
     },

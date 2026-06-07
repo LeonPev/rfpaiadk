@@ -8,6 +8,7 @@ import {
   Eye,
   FileJson,
   FileText,
+  Library,
   MessageSquare,
   Pencil,
   Play,
@@ -17,12 +18,22 @@ import {
   Save,
   Search,
   Send,
+  Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { runArtifactEdit, runStage } from './adkClient';
+import { fetchAgentInstructions, runArtifactEdit, runStage } from './adkClient';
+import {
+  deleteDocument,
+  fetchDocumentMarkdown,
+  fetchDocuments,
+  retryDocument,
+  uploadDocument,
+  type UploadedDocument,
+} from './documentClient';
 import { artifactFileName, artifactToMarkdown, download } from './format';
 import { clearState, loadState, saveState } from './storage';
 import type { AppState, Artifact, ArtifactChatMessage, ArtifactEditProposal, Project, Stage } from './types';
@@ -44,6 +55,34 @@ function newId(prefix: string) {
 
 function updateProject(project: Project, key: keyof Project, value: string): Project {
   return { ...project, [key]: value };
+}
+
+function promptOverrideKey(stageId: string, agentApp: string) {
+  return `${stageId}::${agentApp}`;
+}
+
+function collectDownstreamStageIds(stageId: string) {
+  const startIndex = stages.findIndex((stage) => stage.id === stageId);
+  if (startIndex < 0) return new Set<string>();
+  return new Set(stages.slice(startIndex).map((stage) => stage.id));
+}
+
+function resetStageTree(state: AppState, stageId: string): AppState {
+  const affectedStageIds = collectDownstreamStageIds(stageId);
+  if (!affectedStageIds.size) return state;
+
+  const keptArtifacts = state.artifacts.filter((artifact) => !affectedStageIds.has(artifact.stageId));
+  const keptArtifactIds = new Set(keptArtifacts.map((artifact) => artifact.id));
+
+  return {
+    ...state,
+    artifacts: keptArtifacts,
+    runs: state.runs.filter((run) => !affectedStageIds.has(run.stageId)),
+    errors: Object.fromEntries(Object.entries(state.errors).filter(([key]) => !affectedStageIds.has(key))),
+    selectedArtifactId: state.selectedArtifactId && keptArtifactIds.has(state.selectedArtifactId) ? state.selectedArtifactId : keptArtifacts.at(-1)?.id,
+    artifactChats: Object.fromEntries(Object.entries(state.artifactChats).filter(([artifactId]) => keptArtifactIds.has(artifactId))),
+    artifactEditProposals: state.artifactEditProposals.filter((proposal) => keptArtifactIds.has(proposal.artifactId)),
+  };
 }
 
 function changedRows(artifact: Artifact, proposal: ArtifactEditProposal) {
@@ -83,14 +122,122 @@ function IconButton({
   );
 }
 
+function DocumentUploadPanel({
+  documents,
+  uploading,
+  error,
+  onUpload,
+  onPreview,
+  onDownload,
+  onRetry,
+  onDelete,
+}: {
+  documents: UploadedDocument[];
+  uploading: boolean;
+  error: string;
+  onUpload: (files: FileList | null) => void;
+  onPreview: (document: UploadedDocument) => void;
+  onDownload: (document: UploadedDocument) => void;
+  onRetry: (document: UploadedDocument) => void;
+  onDelete: (document: UploadedDocument) => void;
+}) {
+  const indexedCount = documents.filter((document) => document.status === 'indexed').length;
+
+  return (
+    <section className="document-upload">
+      <div className="document-upload-header">
+        <div>
+          <p className="eyebrow">Local Docs</p>
+          <h2>{indexedCount} indexed sources</h2>
+        </div>
+        <label className="upload-button">
+          <Upload size={17} />
+          Upload
+          <input
+            type="file"
+            accept=".pdf,.docx,.doc"
+            multiple
+            disabled={uploading}
+            onChange={(event) => {
+              onUpload(event.currentTarget.files);
+              event.currentTarget.value = '';
+            }}
+          />
+        </label>
+      </div>
+      {uploading ? (
+        <p className="document-note">
+          <RefreshCw size={15} />
+          Converting and indexing...
+        </p>
+      ) : null}
+      {error ? (
+        <p className="stage-error document-error">
+          <AlertCircle size={15} />
+          {error}
+        </p>
+      ) : null}
+      <div className="document-list">
+        {documents.length ? (
+          documents.map((document) => (
+            <article className="document-item" key={document.id}>
+              <FileText size={17} />
+              <span>
+                <strong>{document.filename}</strong>
+                <small>
+                  {document.fileType.toUpperCase()} · {document.chunkCount} chunks
+                </small>
+                {document.error ? <small className="document-error-text">{document.error}</small> : null}
+              </span>
+              <StatusPill status={document.status} />
+              <div className="document-actions">
+                <IconButton label={`Preview ${document.filename}`} onClick={() => onPreview(document)} disabled={document.status !== 'indexed'}>
+                  <Eye size={17} />
+                </IconButton>
+                <IconButton label={`Download Markdown for ${document.filename}`} onClick={() => onDownload(document)} disabled={document.status !== 'indexed'}>
+                  <Download size={17} />
+                </IconButton>
+                <IconButton label={`Retry indexing ${document.filename}`} onClick={() => onRetry(document)} disabled={document.status !== 'failed' || uploading}>
+                  <RefreshCw size={17} />
+                </IconButton>
+                <IconButton label={`Remove ${document.filename}`} onClick={() => onDelete(document)}>
+                  <Trash2 size={17} />
+                </IconButton>
+              </div>
+            </article>
+          ))
+        ) : (
+          <p className="empty-copy">Upload PDF, DOCX, or DOC files for the agents to search locally.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ProjectPanel({
   project,
+  documents,
+  documentsLoading,
+  documentError,
   onChange,
   onReset,
+  onUploadDocuments,
+  onPreviewDocument,
+  onDownloadDocument,
+  onRetryDocument,
+  onDeleteDocument,
 }: {
   project: Project;
+  documents: UploadedDocument[];
+  documentsLoading: boolean;
+  documentError: string;
   onChange: (project: Project) => void;
   onReset: () => void;
+  onUploadDocuments: (files: FileList | null) => void;
+  onPreviewDocument: (document: UploadedDocument) => void;
+  onDownloadDocument: (document: UploadedDocument) => void;
+  onRetryDocument: (document: UploadedDocument) => void;
+  onDeleteDocument: (document: UploadedDocument) => void;
 }) {
   return (
     <section className="project-panel">
@@ -147,6 +294,16 @@ function ProjectPanel({
           />
         </label>
       </div>
+      <DocumentUploadPanel
+        documents={documents}
+        uploading={documentsLoading}
+        error={documentError}
+        onUpload={onUploadDocuments}
+        onPreview={onPreviewDocument}
+        onDownload={onDownloadDocument}
+        onRetry={onRetryDocument}
+        onDelete={onDeleteDocument}
+      />
     </section>
   );
 }
@@ -159,6 +316,8 @@ function StageCard({
   error,
   onOpen,
   onRun,
+  onEditPrompt,
+  onRerun,
   onRetry,
 }: {
   stage: Stage;
@@ -168,9 +327,12 @@ function StageCard({
   error?: string;
   onOpen: () => void;
   onRun: () => void;
+  onEditPrompt: () => void;
+  onRerun: () => void;
   onRetry: () => void;
 }) {
   const canRun = status === 'ready' && hasKey;
+  const canRerun = hasKey && status !== 'locked' && status !== 'running';
   return (
     <article className={`stage-card ${active ? 'active' : ''}`}>
       <button className="stage-main" type="button" onClick={onOpen}>
@@ -189,6 +351,10 @@ function StageCard({
             search
           </span>
         ) : null}
+        <span className="rag-tag">
+          <Library size={14} />
+          rag
+        </span>
       </div>
       <div className="agent-list">
         {stage.agentApps.map((agent) => (
@@ -201,10 +367,20 @@ function StageCard({
           {error}
         </p>
       ) : null}
-      <button className="run-button" type="button" onClick={status === 'error' ? onRetry : onRun} disabled={!canRun && status !== 'error'}>
-        {status === 'error' ? <RefreshCw size={17} /> : <Play size={17} />}
-        {status === 'error' ? 'Retry' : 'Run'}
-      </button>
+      <div className="stage-actions">
+        <button className="secondary" type="button" onClick={onEditPrompt}>
+          <FileText size={16} />
+          Prompt
+        </button>
+        <button className="secondary" type="button" onClick={onRerun} disabled={!canRerun}>
+          <RotateCcw size={16} />
+          Rerun
+        </button>
+        <button className="run-button" type="button" onClick={status === 'error' ? onRetry : onRun} disabled={!canRun && status !== 'error'}>
+          {status === 'error' ? <RefreshCw size={17} /> : <Play size={17} />}
+          {status === 'error' ? 'Retry' : 'Run'}
+        </button>
+      </div>
     </article>
   );
 }
@@ -534,6 +710,121 @@ function ArtifactEditChat({
   );
 }
 
+function PromptEditorModal({
+  stage,
+  open,
+  drafts,
+  onChange,
+  onClose,
+  onSave,
+  instructionsError,
+}: {
+  stage?: Stage;
+  open: boolean;
+  drafts: Record<string, string>;
+  onChange: (stageId: string, agentApp: string, value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+  instructionsError?: string;
+}) {
+  if (!open || !stage) return null;
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <section className="prompt-modal" role="dialog" aria-modal="true" aria-label={`Edit prompts for ${stage.title}`} onClick={(event) => event.stopPropagation()}>
+        <div className="prompt-modal-header">
+          <div>
+            <p className="eyebrow">System Prompt</p>
+            <h2>{stage.title}</h2>
+          </div>
+          <button className="icon-button" type="button" aria-label="Close prompt editor" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <p className="prompt-help">Edit each agent instruction before running this stage. Saved changes apply only to this UI session state.</p>
+        {instructionsError ? (
+          <p className="stage-error">
+            <AlertCircle size={15} />
+            {instructionsError}
+          </p>
+        ) : null}
+        <div className="prompt-modal-body">
+          {stage.agentApps.map((agentApp) => {
+            const key = promptOverrideKey(stage.id, agentApp);
+            return (
+              <label key={key}>
+                {agentApp.replace(/_/g, ' ')}
+                <textarea rows={8} value={drafts[key] ?? ''} onChange={(event) => onChange(stage.id, agentApp, event.target.value)} />
+              </label>
+            );
+          })}
+        </div>
+        <div className="prompt-modal-actions">
+          <button className="secondary" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="run-button" type="button" onClick={onSave}>
+            <Save size={17} />
+            Save prompts
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DocumentPreviewModal({
+  document,
+  markdown,
+  loading,
+  error,
+  onClose,
+  onDownload,
+}: {
+  document?: UploadedDocument;
+  markdown: string;
+  loading: boolean;
+  error: string;
+  onClose: () => void;
+  onDownload: () => void;
+}) {
+  if (!document) return null;
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <section className="prompt-modal document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${document.filename}`} onClick={(event) => event.stopPropagation()}>
+        <div className="prompt-modal-header">
+          <div>
+            <p className="eyebrow">Converted Markdown</p>
+            <h2>{document.filename}</h2>
+          </div>
+          <div className="toolbar-actions">
+            <IconButton label="Download Markdown" onClick={onDownload} disabled={!markdown.trim()}>
+              <Download size={18} />
+            </IconButton>
+            <IconButton label="Close document preview" onClick={onClose}>
+              <X size={18} />
+            </IconButton>
+          </div>
+        </div>
+        {loading ? (
+          <p className="document-note">
+            <RefreshCw size={15} />
+            Loading Markdown...
+          </p>
+        ) : null}
+        {error ? (
+          <p className="stage-error document-error">
+            <AlertCircle size={15} />
+            {error}
+          </p>
+        ) : null}
+        <pre className="document-preview">{markdown || 'No Markdown available.'}</pre>
+      </section>
+    </div>
+  );
+}
+
 function ApiNotice({ hasKey }: { hasKey: boolean }) {
   if (!isLocalDev) {
     return (
@@ -565,9 +856,54 @@ export function App() {
   const [runningStageId, setRunningStageId] = useState<string>();
   const [runningArtifactEditId, setRunningArtifactEditId] = useState<string>();
   const [artifactEditErrors, setArtifactEditErrors] = useState<Record<string, string>>({});
+  const [agentInstructions, setAgentInstructions] = useState<Record<string, string>>({});
+  const [agentInstructionError, setAgentInstructionError] = useState<string>('');
+  const [promptDrafts, setPromptDrafts] = useState<Record<string, string>>({});
+  const [editingPromptStageId, setEditingPromptStageId] = useState<string>();
   const [isWorkflowBoardCollapsed, setIsWorkflowBoardCollapsed] = useState(false);
+  const [documents, setDocuments] = useState<UploadedDocument[]>([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [documentError, setDocumentError] = useState('');
+  const [previewDocument, setPreviewDocument] = useState<UploadedDocument>();
+  const [documentPreviewMarkdown, setDocumentPreviewMarkdown] = useState('');
+  const [documentPreviewLoading, setDocumentPreviewLoading] = useState(false);
+  const [documentPreviewError, setDocumentPreviewError] = useState('');
 
   useEffect(() => saveState(state), [state]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAgentInstructions()
+      .then((instructions) => {
+        if (cancelled) return;
+        setAgentInstructions(instructions);
+        setAgentInstructionError('');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setAgentInstructionError(error instanceof Error ? error.message : 'Unable to load agent instructions');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchDocuments()
+      .then((items) => {
+        if (cancelled) return;
+        setDocuments(items);
+        setDocumentError('');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setDocumentError(error instanceof Error ? error.message : 'Unable to load uploaded documents');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const activeStage = stages.find((stage) => stage.id === state.activeStageId) ?? stages[0];
   const selectedArtifact = useMemo(() => state.artifacts.find((artifact) => artifact.id === state.selectedArtifactId) ?? state.artifacts.at(-1), [state.artifacts, state.selectedArtifactId]);
@@ -577,7 +913,8 @@ export function App() {
     : undefined;
   const projectReady = isProjectReady(state.project);
 
-  async function executeStage(stage: Stage) {
+  async function executeStage(stage: Stage, options?: { forceRerun?: boolean }) {
+    const forceRerun = Boolean(options?.forceRerun);
     if (!hasGeminiKey) {
       setState((current) => ({
         ...current,
@@ -588,14 +925,33 @@ export function App() {
       }));
       return;
     }
-    if (!isStageReady(state, stage)) return;
+
+    const sourceState = forceRerun ? resetStageTree(state, stage.id) : state;
+    if (!isStageReady(sourceState, stage)) return;
+
+    const stagePromptOverrides = Object.fromEntries(
+      stage.agentApps
+        .map((agentApp) => {
+          const key = promptOverrideKey(stage.id, agentApp);
+          const override = sourceState.agentPromptOverrides[key]?.trim();
+          return [agentApp, override ?? ''];
+        })
+        .filter(([, value]) => Boolean(value)),
+    );
 
     setRunningStageId(stage.id);
-    setState((current) => ({ ...current, errors: { ...current.errors, [stage.id]: '' }, activeStageId: stage.id }));
+    setState((current) => {
+      const base = forceRerun ? resetStageTree(current, stage.id) : current;
+      return {
+        ...base,
+        errors: { ...base.errors, [stage.id]: '' },
+        activeStageId: stage.id,
+      };
+    });
 
     try {
-      const contextArtifacts = getContextArtifacts(state, stage);
-      const results = await runStage(stage, state.project, contextArtifacts, state.selectedSolutions);
+      const contextArtifacts = getContextArtifacts(sourceState, stage);
+      const results = await runStage(stage, sourceState.project, contextArtifacts, sourceState.selectedSolutions, stagePromptOverrides);
       const artifacts = results.flatMap((result) => result.artifacts);
       const runs = results.map((result, index) => ({
         id: `${stage.id}-${Date.now()}-${index}`,
@@ -770,16 +1126,126 @@ export function App() {
     }));
   }
 
+  const editingPromptStage = stages.find((stage) => stage.id === editingPromptStageId);
+
+  function openPromptEditor(stage: Stage) {
+    const nextDrafts: Record<string, string> = {};
+    for (const agentApp of stage.agentApps) {
+      const key = promptOverrideKey(stage.id, agentApp);
+      nextDrafts[key] = state.agentPromptOverrides[key] ?? agentInstructions[agentApp] ?? '';
+    }
+    setPromptDrafts((current) => ({ ...current, ...nextDrafts }));
+    setEditingPromptStageId(stage.id);
+  }
+
+  function savePromptEdits() {
+    if (!editingPromptStage) return;
+    setState((current) => {
+      const nextOverrides = { ...current.agentPromptOverrides };
+      for (const agentApp of editingPromptStage.agentApps) {
+        const key = promptOverrideKey(editingPromptStage.id, agentApp);
+        const value = (promptDrafts[key] ?? '').trim();
+        if (value) nextOverrides[key] = value;
+        else delete nextOverrides[key];
+      }
+      return { ...current, agentPromptOverrides: nextOverrides };
+    });
+    setEditingPromptStageId(undefined);
+  }
+
+  async function refreshDocuments() {
+    const items = await fetchDocuments();
+    setDocuments(items);
+  }
+
+  async function uploadDocuments(files: FileList | null) {
+    const selectedFiles = Array.from(files ?? []);
+    if (!selectedFiles.length) return;
+
+    setDocumentsLoading(true);
+    setDocumentError('');
+    try {
+      for (const file of selectedFiles) {
+        await uploadDocument(file);
+      }
+      await refreshDocuments();
+    } catch (error) {
+      setDocumentError(error instanceof Error ? error.message : 'Unable to upload document');
+      await refreshDocuments().catch(() => undefined);
+    } finally {
+      setDocumentsLoading(false);
+    }
+  }
+
+  async function openDocumentPreview(document: UploadedDocument) {
+    setPreviewDocument(document);
+    setDocumentPreviewMarkdown('');
+    setDocumentPreviewError('');
+    setDocumentPreviewLoading(true);
+    try {
+      setDocumentPreviewMarkdown(await fetchDocumentMarkdown(document.id));
+    } catch (error) {
+      setDocumentPreviewError(error instanceof Error ? error.message : 'Unable to load converted Markdown');
+    } finally {
+      setDocumentPreviewLoading(false);
+    }
+  }
+
+  async function downloadDocumentMarkdown(document: UploadedDocument) {
+    try {
+      const markdown = previewDocument?.id === document.id && documentPreviewMarkdown ? documentPreviewMarkdown : await fetchDocumentMarkdown(document.id);
+      download(`${document.filename.replace(/\.[^.]+$/, '')}.md`, markdown, 'text/markdown');
+    } catch (error) {
+      setDocumentError(error instanceof Error ? error.message : 'Unable to download converted Markdown');
+    }
+  }
+
+  async function retryUploadedDocument(document: UploadedDocument) {
+    setDocumentsLoading(true);
+    setDocumentError('');
+    try {
+      await retryDocument(document.id);
+      await refreshDocuments();
+    } catch (error) {
+      setDocumentError(error instanceof Error ? error.message : 'Unable to retry uploaded document');
+      await refreshDocuments().catch(() => undefined);
+    } finally {
+      setDocumentsLoading(false);
+    }
+  }
+
+  async function removeDocument(document: UploadedDocument) {
+    setDocumentError('');
+    try {
+      await deleteDocument(document.id);
+      if (previewDocument?.id === document.id) {
+        setPreviewDocument(undefined);
+        setDocumentPreviewMarkdown('');
+      }
+      await refreshDocuments();
+    } catch (error) {
+      setDocumentError(error instanceof Error ? error.message : 'Unable to remove uploaded document');
+    }
+  }
+
   return (
     <main>
       <div className="app-shell">
         <ProjectPanel
           project={state.project}
+          documents={documents}
+          documentsLoading={documentsLoading}
+          documentError={documentError}
           onChange={(project) => setState((current) => ({ ...current, project }))}
           onReset={() => {
             clearState();
             setState(initialState);
           }}
+          onUploadDocuments={uploadDocuments}
+          onPreviewDocument={openDocumentPreview}
+          onDownloadDocument={downloadDocumentMarkdown}
+          onRetryDocument={retryUploadedDocument}
+          onDeleteDocument={removeDocument}
         />
         <ApiNotice hasKey={hasGeminiKey} />
 
@@ -826,6 +1292,8 @@ export function App() {
                         error={state.errors[stage.id]}
                         onOpen={() => setState((current) => ({ ...current, activeStageId: stage.id }))}
                         onRun={() => executeStage(stage)}
+                        onEditPrompt={() => openPromptEditor(stage)}
+                        onRerun={() => executeStage(stage, { forceRerun: true })}
                         onRetry={() => executeStage(stage)}
                       />
                     );
@@ -835,6 +1303,32 @@ export function App() {
               </div>
             )}
           </div>
+
+          <PromptEditorModal
+            stage={editingPromptStage}
+            open={Boolean(editingPromptStage)}
+            drafts={promptDrafts}
+            onChange={(stageId, agentApp, value) =>
+              setPromptDrafts((current) => ({
+                ...current,
+                [promptOverrideKey(stageId, agentApp)]: value,
+              }))
+            }
+            onClose={() => setEditingPromptStageId(undefined)}
+            onSave={savePromptEdits}
+            instructionsError={agentInstructionError}
+          />
+
+          <DocumentPreviewModal
+            document={previewDocument}
+            markdown={documentPreviewMarkdown}
+            loading={documentPreviewLoading}
+            error={documentPreviewError}
+            onClose={() => setPreviewDocument(undefined)}
+            onDownload={() => {
+              if (previewDocument) downloadDocumentMarkdown(previewDocument);
+            }}
+          />
 
           <aside className={isWorkflowBoardCollapsed ? 'side-panel workflow-collapsed' : 'side-panel'}>
             {isWorkflowBoardCollapsed ? null : (

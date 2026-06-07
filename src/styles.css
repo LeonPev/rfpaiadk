@@ -315,6 +315,7 @@ button:focus-visible {
 
 .status,
 .search-tag,
+.rag-tag,
 .agent-list span,
 .chips button {
   display: inline-flex;
@@ -352,9 +353,30 @@ button:focus-visible {
   background: #eef0f3;
 }
 
+.status-indexed {
+  color: #055f57;
+  background: var(--teal-soft);
+}
+
+.status-converting,
+.status-indexing {
+  color: var(--gold);
+  background: var(--gold-soft);
+}
+
+.status-failed {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
 .search-tag {
   color: #114c94;
   background: var(--blue-soft);
+}
+
+.rag-tag {
+  color: #055f57;
+  background: var(--teal-soft);
 }
 
 .agent-list span {
@@ -388,6 +410,17 @@ button:focus-visible {
   background: var(--teal);
   padding: 8px 12px;
   font-weight: 800;
+}
+
+.stage-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stage-actions .run-button,
+.stage-actions .secondary {
+  width: 100%;
 }
 
 .run-button:disabled {
@@ -428,6 +461,127 @@ button:focus-visible {
   border: 1px solid #9bd3cc;
   color: #055f57;
   background: var(--teal-soft);
+}
+
+.document-upload {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.document-upload-header,
+.document-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.upload-button {
+  position: relative;
+  display: inline-flex;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: #25313d;
+  background: #fff;
+  padding: 8px 12px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.upload-button:hover {
+  border-color: #9ca9ba;
+  background: var(--panel-strong);
+}
+
+.upload-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.document-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #485363;
+  font-size: 0.84rem;
+  font-weight: 720;
+}
+
+.document-list {
+  display: grid;
+  gap: 8px;
+}
+
+.document-item {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  padding: 9px;
+}
+
+.document-item > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.document-item strong,
+.document-item small {
+  overflow-wrap: anywhere;
+}
+
+.document-item small {
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.document-error,
+.document-error-text {
+  max-height: 72px;
+}
+
+.document-error-text {
+  color: var(--red) !important;
+}
+
+.document-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.document-preview-modal {
+  width: min(1100px, 100%);
+}
+
+.document-preview {
+  min-height: min(58vh, 620px);
+  max-height: 66vh;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 12px;
+  color: #222831;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .side-panel {
@@ -800,6 +954,47 @@ button:focus-visible {
   resize: vertical;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgba(23, 25, 28, 0.45);
+  padding: 14px;
+}
+
+.prompt-modal {
+  display: grid;
+  gap: 12px;
+  width: min(980px, 100%);
+  max-height: min(88vh, 960px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 14px;
+}
+
+.prompt-modal-header,
+.prompt-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.prompt-help {
+  margin: 0;
+  color: #485363;
+  line-height: 1.4;
+}
+
+.prompt-modal-body {
+  display: grid;
+  gap: 10px;
+}
+
 @media (max-width: 1240px) {
   .workspace,
   .workspace.workflow-collapsed,
@@ -842,8 +1037,13 @@ button:focus-visible {
   }
 
   .diff-columns,
-  .chat-form {
+  .chat-form,
+  .stage-actions,
+  .document-item,
+  .document-upload-header {
     grid-template-columns: 1fr;
+    display: grid;
+    align-items: stretch;
   }
 
   .chat-message {
