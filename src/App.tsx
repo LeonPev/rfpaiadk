@@ -5,18 +5,21 @@ import {
   Download,
   FileJson,
   FileText,
+  MessageSquare,
   Play,
   Printer,
   RefreshCw,
   RotateCcw,
   Save,
   Search,
+  Send,
+  X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { runStage } from './adkClient';
-import { artifactFileName, download } from './format';
+import { runArtifactEdit, runStage } from './adkClient';
+import { artifactFileName, artifactToMarkdown, download } from './format';
 import { clearState, loadState, saveState } from './storage';
-import type { AppState, Artifact, Project, Stage } from './types';
+import type { AppState, Artifact, ArtifactChatMessage, ArtifactEditProposal, Project, Stage } from './types';
 import {
   getContextArtifacts,
   getStageStatus,
@@ -29,8 +32,27 @@ import {
 const isLocalDev = import.meta.env.DEV;
 const hasGeminiKey = isLocalDev ? __AYIT_HAS_GEMINI_KEY__ : true;
 
+function newId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function updateProject(project: Project, key: keyof Project, value: string): Project {
   return { ...project, [key]: value };
+}
+
+function changedRows(artifact: Artifact, proposal: ArtifactEditProposal) {
+  const proposed = proposal.revisedArtifact;
+  const rows = [
+    { label: 'Title', current: artifact.artifactTitle, proposed: proposed.artifactTitle },
+    { label: 'Type', current: artifact.artifactType, proposed: proposed.artifactType },
+    { label: 'Summary', current: artifact.summary, proposed: proposed.summary },
+    { label: 'Artifact Markdown', current: artifact.content, proposed: proposed.content },
+  ];
+  return rows.filter((row) => row.current.trim() !== row.proposed.trim());
+}
+
+function displayValue(value: string) {
+  return value.trim() || 'Empty';
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -193,24 +215,9 @@ function GatePanel({
 
   return (
     <section className="gate-panel">
-      <div className="gate-row">
-        <div>
-          <p className="eyebrow">Human Gate</p>
-          <h2>Research Plan Approval</h2>
-        </div>
-        <button
-          type="button"
-          className={state.approvedResearchPlan ? 'secondary success' : 'secondary'}
-          disabled={!state.artifacts.some((artifact) => artifact.artifactType === 'Intelligence Collection Plan')}
-          onClick={() => setState((current) => ({ ...current, approvedResearchPlan: !current.approvedResearchPlan }))}
-        >
-          <Check size={17} />
-          {state.approvedResearchPlan ? 'Approved' : 'Approve'}
-        </button>
-      </div>
       <div className="gate-row solution-gate">
         <div>
-          <p className="eyebrow">Human Gate</p>
+          <p className="eyebrow">Optional Focus</p>
           <h2>Preferred Solutions</h2>
         </div>
         <form
@@ -282,9 +289,23 @@ function ArtifactList({
 function ArtifactPanel({
   artifact,
   onUpdate,
+  messages,
+  pendingProposal,
+  editError,
+  isEditing,
+  onSendEdit,
+  onApplyProposal,
+  onRejectProposal,
 }: {
   artifact?: Artifact;
   onUpdate: (artifact: Artifact) => void;
+  messages: ArtifactChatMessage[];
+  pendingProposal?: ArtifactEditProposal;
+  editError?: string;
+  isEditing: boolean;
+  onSendEdit: (artifact: Artifact, message: string) => void;
+  onApplyProposal: (artifact: Artifact, proposal: ArtifactEditProposal) => void;
+  onRejectProposal: (proposal: ArtifactEditProposal) => void;
 }) {
   if (!artifact) {
     return (
@@ -330,6 +351,148 @@ function ArtifactPanel({
           onChange={(event) => onUpdate({ ...artifact, content: event.target.value })}
         />
       </label>
+      <ArtifactEditChat
+        artifact={artifact}
+        messages={messages}
+        pendingProposal={pendingProposal}
+        error={editError}
+        isRunning={isEditing}
+        onSend={onSendEdit}
+        onApply={onApplyProposal}
+        onReject={onRejectProposal}
+      />
+    </section>
+  );
+}
+
+function ProposalDiff({ artifact, proposal }: { artifact: Artifact; proposal: ArtifactEditProposal }) {
+  const rows = changedRows(artifact, proposal);
+  if (!rows.length) {
+    return <p className="empty-copy">The proposal does not change the current artifact text.</p>;
+  }
+
+  return (
+    <div className="proposal-diff">
+      {rows.map((row) => (
+        <div className="diff-row" key={row.label}>
+          <h3>{row.label}</h3>
+          <div className="diff-columns">
+            <div>
+              <span>Current</span>
+              <pre>{displayValue(row.current)}</pre>
+            </div>
+            <div>
+              <span>Proposed</span>
+              <pre>{displayValue(row.proposed)}</pre>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ArtifactEditChat({
+  artifact,
+  messages,
+  pendingProposal,
+  error,
+  isRunning,
+  onSend,
+  onApply,
+  onReject,
+}: {
+  artifact: Artifact;
+  messages: ArtifactChatMessage[];
+  pendingProposal?: ArtifactEditProposal;
+  error?: string;
+  isRunning: boolean;
+  onSend: (artifact: Artifact, message: string) => void;
+  onApply: (artifact: Artifact, proposal: ArtifactEditProposal) => void;
+  onReject: (proposal: ArtifactEditProposal) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const canSend = Boolean(draft.trim()) && !isRunning;
+
+  return (
+    <section className="artifact-chat">
+      <div className="chat-heading">
+        <div>
+          <p className="eyebrow">Artifact Edit Chat</p>
+          <h2>Review before applying</h2>
+        </div>
+        <MessageSquare size={20} />
+      </div>
+
+      <div className="chat-log" aria-live="polite">
+        {messages.length ? (
+          messages.map((message) => (
+            <div key={message.id} className={`chat-message ${message.role}`}>
+              <span>{message.role === 'user' ? 'You' : 'Editor'}</span>
+              <p>{message.content}</p>
+            </div>
+          ))
+        ) : (
+          <p className="empty-copy">Ask for a focused edit, then review the proposed changes before they touch the artifact.</p>
+        )}
+        {isRunning ? (
+          <div className="chat-message assistant">
+            <span>Editor</span>
+            <p>Reviewing the artifact...</p>
+          </div>
+        ) : null}
+      </div>
+
+      {error ? (
+        <p className="stage-error artifact-edit-error">
+          <AlertCircle size={15} />
+          {error}
+        </p>
+      ) : null}
+
+      {pendingProposal ? (
+        <section className="proposal-review">
+          <div className="proposal-heading">
+            <div>
+              <p className="eyebrow">Pending Review</p>
+              <h2>{pendingProposal.changeSummary}</h2>
+            </div>
+            <div className="proposal-actions">
+              <button className="secondary" type="button" onClick={() => onReject(pendingProposal)}>
+                <X size={17} />
+                Reject
+              </button>
+              <button className="run-button" type="button" onClick={() => onApply(artifact, pendingProposal)}>
+                <Check size={17} />
+                Apply
+              </button>
+            </div>
+          </div>
+          <ProposalDiff artifact={artifact} proposal={pendingProposal} />
+        </section>
+      ) : null}
+
+      <form
+        className="chat-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!canSend) return;
+          onSend(artifact, draft);
+          setDraft('');
+        }}
+      >
+        <textarea
+          rows={3}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="Describe the artifact edit to propose"
+          disabled={isRunning}
+        />
+        <button className="run-button" type="submit" disabled={!canSend}>
+          <Send size={17} />
+          Send
+        </button>
+      </form>
     </section>
   );
 }
@@ -363,11 +526,18 @@ function ApiNotice({ hasKey }: { hasKey: boolean }) {
 export function App() {
   const [state, setState] = useState<AppState>(() => loadState());
   const [runningStageId, setRunningStageId] = useState<string>();
+  const [runningArtifactEditId, setRunningArtifactEditId] = useState<string>();
+  const [artifactEditErrors, setArtifactEditErrors] = useState<Record<string, string>>({});
+  const [isWorkflowBoardCollapsed, setIsWorkflowBoardCollapsed] = useState(false);
 
   useEffect(() => saveState(state), [state]);
 
   const activeStage = stages.find((stage) => stage.id === state.activeStageId) ?? stages[0];
   const selectedArtifact = useMemo(() => state.artifacts.find((artifact) => artifact.id === state.selectedArtifactId) ?? state.artifacts.at(-1), [state.artifacts, state.selectedArtifactId]);
+  const selectedMessages = selectedArtifact ? state.artifactChats[selectedArtifact.id] ?? [] : [];
+  const selectedPendingProposal = selectedArtifact
+    ? [...state.artifactEditProposals].reverse().find((proposal) => proposal.artifactId === selectedArtifact.id && proposal.status === 'pending')
+    : undefined;
   const projectReady = isProjectReady(state.project);
 
   async function executeStage(stage: Stage) {
@@ -434,6 +604,135 @@ export function App() {
     }
   }
 
+  async function sendArtifactEdit(artifact: Artifact, message: string) {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    if (!hasGeminiKey) {
+      setArtifactEditErrors((current) => ({
+        ...current,
+        [artifact.id]: 'Gemini key missing in local dev. Configure .env and restart Vite.',
+      }));
+      return;
+    }
+
+    const userMessage: ArtifactChatMessage = {
+      id: newId('artifact-chat'),
+      artifactId: artifact.id,
+      role: 'user',
+      content: trimmed,
+      createdAt: new Date().toISOString(),
+    };
+    const transcript = [...(state.artifactChats[artifact.id] ?? []), userMessage];
+
+    setRunningArtifactEditId(artifact.id);
+    setArtifactEditErrors((current) => ({ ...current, [artifact.id]: '' }));
+    setState((current) => ({
+      ...current,
+      artifactChats: {
+        ...current.artifactChats,
+        [artifact.id]: [...(current.artifactChats[artifact.id] ?? []), userMessage],
+      },
+    }));
+
+    try {
+      const result = await runArtifactEdit(state.project, artifact, transcript);
+      const assistantMessage: ArtifactChatMessage = {
+        id: newId('artifact-chat'),
+        artifactId: artifact.id,
+        role: 'assistant',
+        content: result.assistantMessage,
+        createdAt: new Date().toISOString(),
+      };
+      const proposal: ArtifactEditProposal | undefined = result.proposal
+        ? {
+            id: newId('artifact-proposal'),
+            artifactId: artifact.id,
+            status: 'pending',
+            changeSummary: result.proposal.changeSummary,
+            revisedArtifact: result.proposal.revisedArtifact,
+            createdAt: new Date().toISOString(),
+          }
+        : undefined;
+
+      setState((current) => ({
+        ...current,
+        artifactChats: {
+          ...current.artifactChats,
+          [artifact.id]: [...(current.artifactChats[artifact.id] ?? []), assistantMessage],
+        },
+        artifactEditProposals: proposal
+          ? [
+              ...current.artifactEditProposals.map((item) =>
+                item.artifactId === artifact.id && item.status === 'pending' ? { ...item, status: 'rejected' as const } : item,
+              ),
+              proposal,
+            ]
+          : current.artifactEditProposals,
+        runs: [
+          ...current.runs,
+          {
+            id: newId('run'),
+            stageId: 'artifact-edit',
+            agentApp: 'artifact_editor_agent',
+            status: 'success' as const,
+            createdAt: new Date().toISOString(),
+            prompt: result.prompt,
+            events: result.events,
+          },
+        ],
+      }));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown artifact editor error';
+      setArtifactEditErrors((current) => ({ ...current, [artifact.id]: errorMessage }));
+      setState((current) => ({
+        ...current,
+        runs: [
+          ...current.runs,
+          {
+            id: newId('run'),
+            stageId: 'artifact-edit',
+            agentApp: 'artifact_editor_agent',
+            status: 'error',
+            createdAt: new Date().toISOString(),
+            prompt: '',
+            events: [],
+            error: errorMessage,
+          },
+        ],
+      }));
+    } finally {
+      setRunningArtifactEditId(undefined);
+    }
+  }
+
+  function applyArtifactProposal(artifact: Artifact, proposal: ArtifactEditProposal) {
+    const revised = proposal.revisedArtifact;
+    const updated: Artifact = {
+      ...artifact,
+      ...revised,
+      content: revised.content || artifactToMarkdown(revised),
+      rawText: JSON.stringify(revised, null, 2),
+      parseStatus: 'parsed',
+    };
+
+    setState((current) => ({
+      ...current,
+      artifacts: current.artifacts.map((item) => (item.id === artifact.id ? updated : item)),
+      artifactEditProposals: current.artifactEditProposals.map((item) =>
+        item.id === proposal.id ? { ...item, status: 'applied' as const } : item,
+      ),
+    }));
+  }
+
+  function rejectArtifactProposal(proposal: ArtifactEditProposal) {
+    setState((current) => ({
+      ...current,
+      artifactEditProposals: current.artifactEditProposals.map((item) =>
+        item.id === proposal.id ? { ...item, status: 'rejected' as const } : item,
+      ),
+    }));
+  }
+
   return (
     <main>
       <div className="app-shell">
@@ -447,34 +746,50 @@ export function App() {
         />
         <ApiNotice hasKey={hasGeminiKey} />
 
-        <section className="workspace">
-          <div className="board">
+        <section className={isWorkflowBoardCollapsed ? 'workspace workflow-collapsed' : 'workspace'}>
+          <div className={isWorkflowBoardCollapsed ? 'board collapsed' : 'board'}>
             <div className="board-header">
               <div>
                 <p className="eyebrow">Workflow Board</p>
                 <h2>{activeStage.title}</h2>
               </div>
-              <StatusPill status={projectReady ? 'ready' : 'locked'} />
+              <div className="board-actions">
+                <StatusPill status={projectReady ? 'ready' : 'locked'} />
+                <button
+                  className="icon-button board-toggle"
+                  type="button"
+                  aria-label={isWorkflowBoardCollapsed ? 'Expand workflow board' : 'Collapse workflow board'}
+                  aria-expanded={!isWorkflowBoardCollapsed}
+                  title={isWorkflowBoardCollapsed ? 'Expand workflow board' : 'Collapse workflow board'}
+                  onClick={() => setIsWorkflowBoardCollapsed((current) => !current)}
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
             </div>
-            <div className="stage-grid">
-              {stages.map((stage) => {
-                const status = getStageStatus(state, stage, runningStageId);
-                return (
-                  <StageCard
-                    key={stage.id}
-                    stage={stage}
-                    status={status}
-                    active={stage.id === activeStage.id}
-                    hasKey={hasGeminiKey}
-                    error={state.errors[stage.id]}
-                    onOpen={() => setState((current) => ({ ...current, activeStageId: stage.id }))}
-                    onRun={() => executeStage(stage)}
-                    onRetry={() => executeStage(stage)}
-                  />
-                );
-              })}
-            </div>
-            <GatePanel state={state} setState={setState} />
+            {isWorkflowBoardCollapsed ? null : (
+              <div className="board-body">
+                <div className="stage-grid">
+                  {stages.map((stage) => {
+                    const status = getStageStatus(state, stage, runningStageId);
+                    return (
+                      <StageCard
+                        key={stage.id}
+                        stage={stage}
+                        status={status}
+                        active={stage.id === activeStage.id}
+                        hasKey={hasGeminiKey}
+                        error={state.errors[stage.id]}
+                        onOpen={() => setState((current) => ({ ...current, activeStageId: stage.id }))}
+                        onRun={() => executeStage(stage)}
+                        onRetry={() => executeStage(stage)}
+                      />
+                    );
+                  })}
+                </div>
+                <GatePanel state={state} setState={setState} />
+              </div>
+            )}
           </div>
 
           <aside className="side-panel">
@@ -485,12 +800,19 @@ export function App() {
             />
             <ArtifactPanel
               artifact={selectedArtifact}
+              messages={selectedMessages}
+              pendingProposal={selectedPendingProposal}
+              editError={selectedArtifact ? artifactEditErrors[selectedArtifact.id] : undefined}
+              isEditing={Boolean(selectedArtifact && runningArtifactEditId === selectedArtifact.id)}
               onUpdate={(artifact) =>
                 setState((current) => ({
                   ...current,
                   artifacts: current.artifacts.map((item) => (item.id === artifact.id ? artifact : item)),
                 }))
               }
+              onSendEdit={sendArtifactEdit}
+              onApplyProposal={applyArtifactProposal}
+              onRejectProposal={rejectArtifactProposal}
             />
           </aside>
         </section>

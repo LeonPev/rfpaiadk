@@ -21,6 +21,7 @@ AGENTS = [
     "evidence_agent.agent",
     "red_team_agent.agent",
     "executive_packaging_agent.agent",
+    "artifact_editor_agent.agent",
 ]
 
 
