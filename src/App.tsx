@@ -6,9 +6,11 @@ import {
   ChevronRight,
   Download,
   Eye,
+  FileDown,
   FileJson,
   FileText,
   Library,
+  MonitorPlay,
   MessageSquare,
   Pencil,
   Play,
@@ -35,6 +37,7 @@ import {
   type UploadedDocument,
 } from './documentClient';
 import { artifactFileName, artifactToMarkdown, download } from './format';
+import { buildPresentationHtml, isFinalPresentationArtifact, presentationFileName } from './reportBuilder';
 import { clearState, loadState, saveState } from './storage';
 import type { AppState, Artifact, ArtifactChatMessage, ArtifactEditProposal, Project, Stage } from './types';
 import {
@@ -94,6 +97,24 @@ function changedRows(artifact: Artifact, proposal: ArtifactEditProposal) {
     { label: 'Artifact Markdown', current: artifact.content, proposed: proposed.content },
   ];
   return rows.filter((row) => row.current.trim() !== row.proposed.trim());
+}
+
+function viewArtifactPresentation(project: Project, artifact: Artifact, artifacts: Artifact[]) {
+  const html = buildPresentationHtml(project, artifact, artifacts);
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const opened = window.open(url, '_blank', 'noopener,noreferrer');
+
+  if (!opened) {
+    URL.revokeObjectURL(url);
+    return;
+  }
+
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function downloadArtifactPresentation(project: Project, artifact: Artifact, artifacts: Artifact[]) {
+  download(presentationFileName(project, artifact), buildPresentationHtml(project, artifact, artifacts), 'text/html');
 }
 
 function displayValue(value: string) {
@@ -471,28 +492,36 @@ function ArtifactList({
 }
 
 function ArtifactPanel({
+  project,
+  artifacts,
   artifact,
   onUpdate,
   messages,
   pendingProposal,
   editError,
   isEditing,
+  isRegeneratingPresentation,
   onSendEdit,
   onApplyProposal,
   onRejectProposal,
+  onRegeneratePresentation,
 }: {
+  project: Project;
+  artifacts: Artifact[];
   artifact?: Artifact;
   onUpdate: (artifact: Artifact) => void;
   messages: ArtifactChatMessage[];
   pendingProposal?: ArtifactEditProposal;
   editError?: string;
   isEditing: boolean;
+  isRegeneratingPresentation: boolean;
   onSendEdit: (artifact: Artifact, message: string) => void;
   onApplyProposal: (artifact: Artifact, proposal: ArtifactEditProposal) => void;
   onRejectProposal: (proposal: ArtifactEditProposal) => void;
+  onRegeneratePresentation: () => void;
 }) {
   const [isMarkdownEditing, setIsMarkdownEditing] = useState(false);
-  const [markdownDirection, setMarkdownDirection] = useState<'ltr' | 'rtl'>('ltr');
+  const [markdownDirection, setMarkdownDirection] = useState<'ltr' | 'rtl'>('rtl');
   const isMarkdownRtl = markdownDirection === 'rtl';
 
   useEffect(() => {
@@ -508,6 +537,8 @@ function ArtifactPanel({
     );
   }
 
+  const canViewPresentation = isFinalPresentationArtifact(artifact);
+
   return (
     <section className="artifact-panel">
       <div className="artifact-toolbar">
@@ -522,6 +553,21 @@ function ArtifactPanel({
           <IconButton label="Download JSON" onClick={() => download(artifactFileName(artifact, 'json'), JSON.stringify(artifact, null, 2), 'application/json')}>
             <FileJson size={18} />
           </IconButton>
+          {canViewPresentation ? (
+            <IconButton label="View Presentation" onClick={() => viewArtifactPresentation(project, artifact, artifacts)}>
+              <MonitorPlay size={18} />
+            </IconButton>
+          ) : null}
+          {canViewPresentation ? (
+            <IconButton label="Download Presentation" onClick={() => downloadArtifactPresentation(project, artifact, artifacts)}>
+              <FileDown size={18} />
+            </IconButton>
+          ) : null}
+          {canViewPresentation ? (
+            <IconButton label="Regenerate Presentation" onClick={onRegeneratePresentation} disabled={isRegeneratingPresentation}>
+              <RefreshCw size={18} />
+            </IconButton>
+          ) : null}
           <IconButton label="Print" onClick={() => window.print()}>
             <Printer size={18} />
           </IconButton>
@@ -912,6 +958,7 @@ export function App() {
     ? [...state.artifactEditProposals].reverse().find((proposal) => proposal.artifactId === selectedArtifact.id && proposal.status === 'pending')
     : undefined;
   const projectReady = isProjectReady(state.project);
+  const leadershipStage = stages.find((stage) => stage.id === 'leadership-package');
 
   async function executeStage(stage: Stage, options?: { forceRerun?: boolean }) {
     const forceRerun = Boolean(options?.forceRerun);
@@ -1339,11 +1386,14 @@ export function App() {
               />
             )}
             <ArtifactPanel
+              project={state.project}
+              artifacts={state.artifacts}
               artifact={selectedArtifact}
               messages={selectedMessages}
               pendingProposal={selectedPendingProposal}
               editError={selectedArtifact ? artifactEditErrors[selectedArtifact.id] : undefined}
               isEditing={Boolean(selectedArtifact && runningArtifactEditId === selectedArtifact.id)}
+              isRegeneratingPresentation={runningStageId === 'leadership-package'}
               onUpdate={(artifact) =>
                 setState((current) => ({
                   ...current,
@@ -1353,6 +1403,9 @@ export function App() {
               onSendEdit={sendArtifactEdit}
               onApplyProposal={applyArtifactProposal}
               onRejectProposal={rejectArtifactProposal}
+              onRegeneratePresentation={() => {
+                if (leadershipStage) executeStage(leadershipStage, { forceRerun: true });
+              }}
             />
           </aside>
         </section>
