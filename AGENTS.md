@@ -1,0 +1,1 @@
+When working on UI features, after you finish, run `npm run build`.
