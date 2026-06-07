@@ -3,31 +3,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from ayit_env import configure_google_env
 from google.adk.agents import Agent
+from document_rag import search_uploaded_docs
 
 
-def _load_root_env() -> None:
-    root = Path(__file__).resolve().parents[1]
-    env_file = root / ".env"
-    if not env_file.exists():
-        return
-
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
-
-
-_load_root_env()
-
-if os.environ.get("GEMINI_API_KEY") and not os.environ.get("GOOGLE_API_KEY"):
-    os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
-
-os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "FALSE")
+configure_google_env(Path(__file__).resolve().parents[1])
 
 AYIT_MODEL = os.environ.get("AYIT_MODEL", "gemini-flash-latest")
 
@@ -59,11 +40,28 @@ def _search_tools(use_search: bool):
         return []
 
 
+def _agent_tools(use_search: bool):
+    tools = [search_uploaded_docs]
+    if not use_search:
+        return tools
+    try:
+        from google.adk.tools.google_search_tool import GoogleSearchTool
+
+        tools.append(GoogleSearchTool(bypass_multi_tools_limit=True))
+    except Exception:
+        tools.extend(_search_tools(use_search))
+    return tools
+
+
 def build_agent(name: str, description: str, instruction: str, use_search: bool = False):
     return Agent(
         model=AYIT_MODEL,
         name=name,
         description=description,
-        instruction=f"{instruction}\n\n{JSON_CONTRACT}",
-        tools=_search_tools(use_search),
+        instruction=f"""{instruction}
+
+You can call search_uploaded_docs to search documents uploaded by the Human User. When you use those snippets, cite the uploaded filename in the artifact text.
+
+{JSON_CONTRACT}""",
+        tools=_agent_tools(use_search),
     )

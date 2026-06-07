@@ -25,8 +25,7 @@ Terminal 1:
 npm run adk
 ```
 
-The ADK API server binds to `http://localhost:8001` to avoid the common `8000` port conflict.
-The local script also allows Vite dev origins such as `http://localhost:5173`; restart this process if you see `Forbidden: origin not allowed`.
+The FastAPI backend binds to `http://localhost:8001`, serves the ADK API under `/adk`, and serves local document APIs under `/api`.
 
 Terminal 2:
 
@@ -48,7 +47,16 @@ The deployed container serves the React app and ADK API from one FastAPI process
 
 - frontend: `/`
 - ADK API: `/adk`
+- uploaded document APIs: `/api/documents`
 - health check: `/healthz`
+
+## Uploaded Documents
+
+The Human User panel can upload `.pdf`, `.docx`, and `.doc` files. Originals are stored in `data/uploads/`, converted Markdown is stored in `data/markdown/`, document metadata is stored in `data/rag/documents.sqlite3`, and the local Chroma index is stored in `data/rag/chroma/`.
+
+Uploaded document text is embedded with Google embeddings, using `AYIT_EMBEDDING_MODEL=gemini-embedding-001` by default. The saved files, Markdown, metadata, and vector database remain local.
+
+MarkItDown is the supported v1 converter for `.pdf` and `.docx`. Legacy `.doc` files use the macOS `textutil` fallback.
 
 ## Verify
 

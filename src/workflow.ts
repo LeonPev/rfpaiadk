@@ -134,6 +134,7 @@ export const initialState: AppState = {
   artifacts: [],
   runs: [],
   selectedSolutions: [],
+  agentPromptOverrides: {},
   activeStageId: 'discovery',
   errors: {},
   artifactChats: {},

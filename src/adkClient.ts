@@ -8,6 +8,8 @@ type RunResult = {
   prompt: string;
 };
 
+export type AgentInstructionMap = Record<string, string>;
+
 export type ArtifactEditResult = {
   assistantMessage: string;
   needsMoreInput: boolean;
@@ -210,6 +212,18 @@ Upstream artifacts:
 ${artifactContext(artifacts)}`;
 }
 
+function buildPromptWithOverride(basePrompt: string, override?: string) {
+  const trimmed = override?.trim();
+  if (!trimmed) return basePrompt;
+
+  return `Run-specific system prompt override for ${new Date().toISOString()}:
+${trimmed}
+
+---
+
+${basePrompt}`;
+}
+
 export function buildArtifactEditPrompt(project: Project, artifact: Artifact, messages: ArtifactChatMessage[]) {
   return `You are editing one AYIT procurement artifact through a human review workflow.
 
@@ -277,13 +291,15 @@ export async function runStage(
   project: Project,
   contextArtifacts: Artifact[],
   selectedSolutions: string[],
+  agentPromptOverrides: Record<string, string> = {},
 ): Promise<RunResult[]> {
   const results: RunResult[] = [];
   let rollingArtifacts = [...contextArtifacts];
 
   for (const agentApp of stage.agentApps) {
     const sessionId = `${stage.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const prompt = buildPrompt(stage, agentApp, project, rollingArtifacts, selectedSolutions);
+    const basePrompt = buildPrompt(stage, agentApp, project, rollingArtifacts, selectedSolutions);
+    const prompt = buildPromptWithOverride(basePrompt, agentPromptOverrides[agentApp]);
 
     await createSession(agentApp, sessionId, {
       stageId: stage.id,
@@ -303,6 +319,15 @@ export async function runStage(
   }
 
   return results;
+}
+
+export async function fetchAgentInstructions(): Promise<AgentInstructionMap> {
+  const response = await fetch('/api/agent-instructions');
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Unable to load agent instructions: ${response.status} ${text}`);
+  }
+  return (await response.json()) as AgentInstructionMap;
 }
 
 export async function runArtifactEdit(project: Project, artifact: Artifact, messages: ArtifactChatMessage[]): Promise<ArtifactEditResult> {
